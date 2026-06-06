@@ -1,0 +1,29 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "TuneBench: Debug CLI Command",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "tunebench.debug_cli",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "TuneBench: Debug MCP Server",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/src/tunebench_mcp/debug_server.py",
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      },
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    }
+  ]
+}

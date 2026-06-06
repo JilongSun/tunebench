@@ -1,0 +1,67 @@
+[project]
+name = "tunebench"
+version = "0.1.0"
+description = ""
+authors = [{ name = "sunjilong", email = "965640067@qq.com" }]
+readme = "README.md"
+requires-python = "3.11.15"
+dependencies = [
+    "torch==2.6.0",
+    "torchaudio==2.6.0",
+    "torchvision==0.21.0",
+    "llamafactory",
+    "httpx>=0.27,<1.0",
+    "openpyxl",
+    "transformers",
+    "datasets",
+    "peft",
+    "accelerate",
+    "matplotlib",
+    "click",
+    "cloup",
+    "httpx >= 0.27, < 1.0",
+    "tqdm",
+    "sqlalchemy>=2.0",
+    "aiosqlite>=0.19",
+    "greenlet>=3.0",
+    "python-dotenv",
+    "mcp",
+    "apscheduler",
+    "aiofiles",
+]
+
+[project.scripts]
+tunebench = "tunebench.cli:main"
+tb = "tunebench.cli:main"
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[virtualenvs]
+create = false
+
+[tool.poetry]
+packages = [
+    { include = "tunebench", from = "src" },
+    { include = "tunebench_mcp", from = "src" },
+]
+
+[[tool.poetry.source]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+priority = "explicit"
+
+[tool.poetry.dependencies]
+python = "==3.11.15"
+torch = { version = "2.6.0", source = "pytorch-cu124" }
+torchaudio = { version = "2.6.0", source = "pytorch-cu124" }
+torchvision = { version = "0.21.0", source = "pytorch-cu124" }
+llamafactory = { path = "../LlamaFactory", develop = true }
+httpx = ">=0.27,<1.0"
+openpyxl = "*"
+transformers = ">=4.55.0,<5.7.0"
+datasets = ">=4.0.0,<=4.8.4"
+peft = ">=0.18.0,<=0.18.1"
+accelerate = ">=1.0.0"

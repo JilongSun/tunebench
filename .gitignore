@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+
+# Environments
+.env
+.venv
+env/
+venv/
+
+# IDEs
+# .vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Virtual environments (强烈建议忽略)
+**/env/
+**/venv/
+**/.env/
+**/.venv/
+**/conda/
+.tb311
+
+llamaboard_cache/
+assets/
+runtime/
