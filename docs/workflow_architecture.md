@@ -125,11 +125,13 @@ workflow 层不替代 CLI。
 
 ## 与 MCP 的关系
 
-workflow 层是 MCP 的应用服务基础。当前 MCP 接口围绕以下能力展开：
+workflow 层是 MCP 的应用服务基础。MCP 接口按功能域划分为以下路由：
 
-- 创建 workflow
-- 启动指定 operation
-- 查询 workflow 状态
-- 查询 operation 日志
+- **manage**：创建 workflow、预览 workflow、查询 workflow 状态、查询 operation 日志。
+- **execute**：启动指定 operation（数据准备、推理增强、结构化目标、训练、评测）。
+- **utility**：辅助类工具（如显卡使用查询、环境检查等）。
+- **assets**：通过 MCP Resources 暴露 assets 目录数据。
+
+每个路由模块通过 `register(mcp)` 向 server 注册工具或资源，`server.py` 负责统一汇总。
 
 这样可以把“任务控制”和“具体执行”拆开，让外部 agent 通过显式的资源版本参数组织实验分支，而不是依赖隐式的线性 stage 推进。
