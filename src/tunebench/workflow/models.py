@@ -37,12 +37,9 @@ class StageName(StrEnum):
 class WorkflowStatus(StrEnum):
     """workflow 级状态。"""
 
-    DRAFT = "draft"
+    IDLE = "idle"
     RUNNING = "running"
-    AWAITING_REVIEW = "awaiting_review"
-    READY_NEXT = "ready_next"
     FAILED = "failed"
-    REJECTED = "rejected"
     COMPLETED = "completed"
 
 
@@ -53,9 +50,6 @@ class StageStatus(StrEnum):
     RUNNING = "running"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
-    AWAITING_REVIEW = "awaiting_review"
-    APPROVED = "approved"
-    REJECTED = "rejected"
     SKIPPED = "skipped"
 
 
@@ -89,6 +83,21 @@ def _optional_int(value: Any) -> int | None:
     if value is None:
         return None
     return int(value)
+
+
+def _normalize_workflow_status(value: Any) -> WorkflowStatus:
+    try:
+        return WorkflowStatus(value)
+    except ValueError:
+        # 兼容已废弃的旧状态值
+        legacy_map = {
+            "draft": WorkflowStatus.IDLE,
+            "ready_next": WorkflowStatus.IDLE,
+            "completed": WorkflowStatus.IDLE,
+            "awaiting_review": WorkflowStatus.FAILED,
+            "rejected": WorkflowStatus.FAILED,
+        }
+        return legacy_map.get(str(value), WorkflowStatus.IDLE)
 
 
 @dataclass(slots=True, frozen=True)
@@ -139,20 +148,10 @@ class WorkflowCreateRequest:
     task_name: str
     backend: str
     runtime: WorkflowRuntimeConfig = field(default_factory=WorkflowRuntimeConfig)
-    run_id: str | None = None
     enabled_stages: tuple[StageName | str, ...] = DEFAULT_STAGE_SEQUENCE
-    review_required_stages: tuple[StageName | str, ...] = ()
 
     def normalized_enabled_stages(self) -> tuple[StageName, ...]:
         return normalize_stage_names(self.enabled_stages)
-
-    def normalized_review_required_stages(self) -> tuple[StageName, ...]:
-        enabled = self.normalized_enabled_stages()
-        if not self.review_required_stages:
-            return enabled
-        review_required = normalize_stage_names(self.review_required_stages)
-        enabled_set = set(enabled)
-        return tuple(stage for stage in review_required if stage in enabled_set)
 
 
 @dataclass(slots=True, frozen=True)
@@ -389,6 +388,7 @@ class TrainModelRequest:
     """训练环节请求。"""
 
     dataset_version: str
+    run_id: str
     model_name: str | None = None
     model_key: str | None = None
     instruction: str | None = None
@@ -404,7 +404,7 @@ class TrainModelRequest:
     seed: int = 42
     lora: LoraWorkflowConfig = field(default_factory=LoraWorkflowConfig)
 
-    def to_spec(self, *, task_name: str, backend: str, run_id: str) -> TrainSpec:
+    def to_spec(self, *, task_name: str, backend: str) -> TrainSpec:
         normalized_instruction = self.instruction.strip() if isinstance(self.instruction, str) else self.instruction
         normalized_reasoning_mode = cast(Literal["think", "no_think"] | None, self.reasoning_mode)
         if backend == "bert" and self.resume_lora is None and not self.model_name:
@@ -436,7 +436,7 @@ class TrainModelRequest:
             model_key=self.model_key,
             reasoning_mode=normalized_reasoning_mode,
             resume_lora=self.resume_lora,
-            run_id=run_id,
+            run_id=self.run_id,
             export_dir=(None if self.export_dir is None else Path(self.export_dir)),
             num_labels=self.num_labels,
             learning_rate=self.learning_rate,
@@ -452,6 +452,7 @@ class TrainModelRequest:
     def to_payload(self) -> dict[str, Any]:
         return {
             "dataset_version": self.dataset_version,
+            "run_id": self.run_id,
             "model_name": self.model_name,
             "model_key": self.model_key,
             "instruction": self.instruction,
@@ -472,6 +473,7 @@ class TrainModelRequest:
     def from_payload(cls, payload: dict[str, Any]) -> "TrainModelRequest":
         return cls(
             dataset_version=str(payload["dataset_version"]),
+            run_id=str(payload["run_id"]),
             model_name=(None if payload.get("model_name") is None else str(payload.get("model_name"))),
             model_key=(None if payload.get("model_key") is None else str(payload.get("model_key"))),
             instruction=(None if payload.get("instruction") is None else str(payload.get("instruction"))),
@@ -494,6 +496,7 @@ class EvaluateModelRequest:
     """评测环节请求。"""
 
     dataset_version: str
+    run_id: str
     artifact_type: str = "merged"
     batch_size: int = 8
     max_sequence_length: int | None = None
@@ -502,7 +505,7 @@ class EvaluateModelRequest:
     enable_thinking: bool | None = None
     export_xlsx: bool = True
 
-    def to_spec(self, *, task_name: str, backend: str, run_id: str) -> EvalSpec:
+    def to_spec(self, *, task_name: str, backend: str) -> EvalSpec:
         normalized_prompt_engine = cast(Literal["llamafactory", "native"] | None, self.prompt_engine)
         if backend != "llamafactory" and self.max_new_tokens is not None:
             raise ValueError("max_new_tokens 仅允许在 llamafactory 评测中使用。")
@@ -521,7 +524,7 @@ class EvaluateModelRequest:
         return EvalSpec(
             backend=backend,
             task_name=task_name,
-            run_id=run_id,
+            run_id=self.run_id,
             dataset_version=self.dataset_version,
             artifact_type=self.artifact_type,
             batch_size=self.batch_size,
@@ -535,6 +538,7 @@ class EvaluateModelRequest:
     def to_payload(self) -> dict[str, Any]:
         return {
             "dataset_version": self.dataset_version,
+            "run_id": self.run_id,
             "artifact_type": self.artifact_type,
             "batch_size": self.batch_size,
             "max_sequence_length": self.max_sequence_length,
@@ -548,6 +552,7 @@ class EvaluateModelRequest:
     def from_payload(cls, payload: dict[str, Any]) -> "EvaluateModelRequest":
         return cls(
             dataset_version=str(payload["dataset_version"]),
+            run_id=str(payload["run_id"]),
             artifact_type=str(payload.get("artifact_type", "merged")),
             batch_size=int(payload.get("batch_size", 8)),
             max_sequence_length=_optional_int(payload.get("max_sequence_length")),
@@ -565,12 +570,9 @@ class WorkflowRecord:
     workflow_id: str
     task_name: str
     backend: str
-    run_id: str
     runtime: WorkflowRuntimeConfig
     enabled_stages: tuple[StageName, ...]
-    review_required_stages: tuple[StageName, ...]
-    status: WorkflowStatus = WorkflowStatus.DRAFT
-    current_stage: StageName | None = None
+    status: WorkflowStatus = WorkflowStatus.IDLE
     created_at: str = field(default_factory=utc_now_iso)
     updated_at: str = field(default_factory=utc_now_iso)
     version: int = 1
@@ -580,12 +582,9 @@ class WorkflowRecord:
             "workflow_id": self.workflow_id,
             "task_name": self.task_name,
             "backend": self.backend,
-            "run_id": self.run_id,
             "runtime": self.runtime.to_payload(),
             "enabled_stages": [stage.value for stage in self.enabled_stages],
-            "review_required_stages": [stage.value for stage in self.review_required_stages],
             "status": self.status.value,
-            "current_stage": (None if self.current_stage is None else self.current_stage.value),
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "version": self.version,
@@ -593,17 +592,13 @@ class WorkflowRecord:
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> "WorkflowRecord":
-        current_stage_raw = payload.get("current_stage")
         return cls(
             workflow_id=str(payload["workflow_id"]),
             task_name=str(payload["task_name"]),
             backend=str(payload["backend"]),
-            run_id=str(payload["run_id"]),
             runtime=WorkflowRuntimeConfig.from_payload(payload.get("runtime")),
             enabled_stages=normalize_stage_names(tuple(payload.get("enabled_stages", ()))),
-            review_required_stages=normalize_stage_names(tuple(payload.get("review_required_stages", ()))),
-            status=WorkflowStatus(payload.get("status", WorkflowStatus.DRAFT.value)),
-            current_stage=(None if current_stage_raw is None else StageName(current_stage_raw)),
+            status=_normalize_workflow_status(payload.get("status", WorkflowStatus.IDLE.value)),
             created_at=str(payload.get("created_at", utc_now_iso())),
             updated_at=str(payload.get("updated_at", utc_now_iso())),
             version=int(payload.get("version", 1)),
@@ -622,7 +617,6 @@ class StageRunRecord:
     log_path: str
     request_path: str
     result_path: str
-    requires_review: bool
     plan_payload: dict[str, Any] | None = None
     result_payload: dict[str, Any] | None = None
     pid: int | None = None
@@ -645,7 +639,6 @@ class StageRunRecord:
             "log_path": self.log_path,
             "request_path": self.request_path,
             "result_path": self.result_path,
-            "requires_review": self.requires_review,
             "pid": self.pid,
             "exit_code": self.exit_code,
             "started_at": self.started_at,
@@ -668,7 +661,6 @@ class StageRunRecord:
             log_path=str(payload["log_path"]),
             request_path=str(payload["request_path"]),
             result_path=str(payload["result_path"]),
-            requires_review=bool(payload.get("requires_review", True)),
             pid=_optional_int(payload.get("pid")),
             exit_code=_optional_int(payload.get("exit_code")),
             started_at=payload.get("started_at"),
@@ -717,14 +709,10 @@ class WorkflowStagePlan:
     """描述 workflow 中单个环节的执行计划。"""
 
     stage_name: StageName
-    depends_on: tuple[StageName, ...] = ()
-    requires_review: bool = True
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "stage_name": self.stage_name.value,
-            "depends_on": [stage.value for stage in self.depends_on],
-            "requires_review": self.requires_review,
         }
 
 
@@ -734,14 +722,12 @@ class WorkflowPreview:
 
     task_name: str
     backend: str
-    run_id: str
     stages: tuple[WorkflowStagePlan, ...]
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "task_name": self.task_name,
             "backend": self.backend,
-            "run_id": self.run_id,
             "stages": [stage.to_payload() for stage in self.stages],
         }
 
@@ -753,10 +739,14 @@ class WorkflowSnapshot:
     workflow: WorkflowRecord
     stage_runs: tuple[StageRunRecord, ...]
     events: tuple[WorkflowEventRecord, ...]
+    last_failure: dict[str, Any] | None = None
+    completed_artifacts: tuple[StageRunRecord, ...] = ()
 
     def to_payload(self) -> dict[str, Any]:
         return {
             "workflow": self.workflow.to_payload(),
             "stage_runs": [record.to_payload() for record in self.stage_runs],
             "events": [event.to_payload() for event in self.events],
+            "last_failure": self.last_failure,
+            "completed_artifacts": [record.to_payload() for record in self.completed_artifacts],
         }

@@ -62,7 +62,7 @@ async def _server_lifespan(_server: FastMCP) -> AsyncIterator[WorkflowService]:
 mcp = FastMCP(
     "TuneBench",
     instructions=(
-        "提供 TuneBench workflow 的创建、环节执行、状态查询、日志读取和人工审核能力。"
+        "提供 TuneBench workflow 的创建、operation 执行、状态查询和日志读取能力。"
     ),
     host=_MCP_HOST,
     port=_MCP_PORT,
@@ -88,15 +88,11 @@ async def preview_workflow(
     backend: str,
     ctx: Context,
     runtime: dict[str, Any] | None = None,
-    run_id: str | None = None,
     enabled_stages: list[str] | None = None,
-    review_required_stages: list[str] | None = None,
 ) -> dict[str, Any]:
     """预览 workflow 计划。
 
-    用于在真正创建 workflow 前确认后端、启用环节和人工审核断点设置。
-    `runtime` 用于传递运行时环境配置，`enabled_stages` 与
-    `review_required_stages` 用于控制环节范围与审核策略。
+    用于在真正创建 workflow 前确认后端、启用 operation 范围和运行时配置。
     """
     await ctx.info(f"预览 workflow: task={task_name}, backend={backend}")
     service = _get_workflow_service(ctx)
@@ -105,9 +101,7 @@ async def preview_workflow(
             task_name=task_name,
             backend=backend,
             runtime=runtime,
-            run_id=run_id,
             enabled_stages=enabled_stages,
-            review_required_stages=review_required_stages,
         )
     )
     return to_payload(preview)
@@ -119,14 +113,12 @@ async def create_workflow(
     backend: str,
     ctx: Context,
     runtime: dict[str, Any] | None = None,
-    run_id: str | None = None,
     enabled_stages: list[str] | None = None,
-    review_required_stages: list[str] | None = None,
 ) -> dict[str, Any]:
     """创建新的 workflow。
 
-    该接口是整条实验链路的控制平面入口，会生成 workflow 主记录，
-    后续各个执行接口都以返回的 workflow 标识为归属。
+    该接口只创建实验容器，不再绑定某个固定 run_id。
+    后续每次 operation 执行都显式携带自己的输入与输出版本标识。
     """
     await ctx.info(f"创建 workflow: task={task_name}, backend={backend}")
     service = _get_workflow_service(ctx)
@@ -135,9 +127,7 @@ async def create_workflow(
             task_name=task_name,
             backend=backend,
             runtime=runtime,
-            run_id=run_id,
             enabled_stages=enabled_stages,
-            review_required_stages=review_required_stages,
         )
     )
     return to_payload(snapshot)
@@ -265,6 +255,7 @@ async def run_build_structured_target(
 async def run_train_model(
     workflow_id: str,
     dataset_version: str,
+    run_id: str,
     ctx: Context,
     model_name: str | None = None,
     model_key: str | None = None,
@@ -284,14 +275,16 @@ async def run_train_model(
     """启动训练环节。
 
     用于发起分类训练或继续训练。`dataset_version` 指定训练数据版本，
-    `model_name` / `model_key` 用于选择底座模型，`resume_lora` 用于继续训练。
+    `run_id` 是本次训练要写入的模型版本标识，`model_name` / `model_key`
+    用于选择底座模型，`resume_lora` 用于继续训练。
     """
-    await ctx.info(f"启动 train_model: workflow={workflow_id}, dataset_version={dataset_version}")
+    await ctx.info(f"启动 train_model: workflow={workflow_id}, dataset_version={dataset_version}, run_id={run_id}")
     service = _get_workflow_service(ctx)
     stage_run = await service.run_train_model(
         workflow_id,
         build_train_model_request(
             dataset_version=dataset_version,
+            run_id=run_id,
             model_name=model_name,
             model_key=model_key,
             instruction=instruction,
@@ -315,6 +308,7 @@ async def run_train_model(
 async def run_evaluate_model(
     workflow_id: str,
     dataset_version: str,
+    run_id: str,
     ctx: Context,
     artifact_type: str = "merged",
     batch_size: int = 8,
@@ -326,15 +320,16 @@ async def run_evaluate_model(
 ) -> dict[str, Any]:
     """启动评测环节。
 
-    用于对训练产物执行独立评测。`artifact_type` 指定评测对象，
+    用于对训练产物执行独立评测。`run_id` 指定评测目标模型版本，`artifact_type` 指定评测对象，
     `prompt_engine` 与 `enable_thinking` 主要影响 LlamaFactory/Qwen 路径的评测渲染方式。
     """
-    await ctx.info(f"启动 evaluate_model: workflow={workflow_id}, dataset_version={dataset_version}")
+    await ctx.info(f"启动 evaluate_model: workflow={workflow_id}, dataset_version={dataset_version}, run_id={run_id}")
     service = _get_workflow_service(ctx)
     stage_run = await service.run_evaluate_model(
         workflow_id,
         build_evaluate_model_request(
             dataset_version=dataset_version,
+            run_id=run_id,
             artifact_type=artifact_type,
             batch_size=batch_size,
             max_sequence_length=max_sequence_length,
@@ -348,34 +343,10 @@ async def run_evaluate_model(
 
 
 @mcp.tool()
-async def approve_stage(stage_run_id: str, ctx: Context) -> dict[str, Any]:
-    """审核通过指定环节。
-
-    用于在人工审核断点后继续推进 workflow。
-    """
-    await ctx.info(f"审核通过环节: stage_run={stage_run_id}")
-    service = _get_workflow_service(ctx)
-    stage_run = await service.approve_stage(stage_run_id)
-    return to_payload(stage_run)
-
-
-@mcp.tool()
-async def reject_stage(stage_run_id: str, reason: str, ctx: Context) -> dict[str, Any]:
-    """审核拒绝指定环节。
-
-    用于终止当前 workflow 推进，并把拒绝原因写入状态事件流。
-    """
-    await ctx.info(f"审核拒绝环节: stage_run={stage_run_id}")
-    service = _get_workflow_service(ctx)
-    stage_run = await service.reject_stage(stage_run_id, reason=reason)
-    return to_payload(stage_run)
-
-
-@mcp.tool()
 async def get_workflow_state(workflow_id: str, ctx: Context, event_limit: int = 50) -> dict[str, Any]:
     """读取 workflow 当前状态。
 
-    返回 workflow 主状态、各环节运行记录和最近事件，适合外部 agent 轮询。
+    返回 workflow 主状态、各次 operation 运行记录和最近事件，适合外部 agent 轮询。
     """
     service = _get_workflow_service(ctx)
     snapshot = await service.get_workflow_state(workflow_id, event_limit=event_limit)

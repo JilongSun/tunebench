@@ -10,7 +10,6 @@ from typing import Any
 from tunebench.util import get_logger
 from tunebench.workflow.models import (
     BuildStructuredTargetRequest,
-    DEFAULT_STAGE_SEQUENCE,
     EvaluateModelRequest,
     GenerateReasoningRequest,
     PrepareDatasetRequest,
@@ -56,22 +55,12 @@ class WorkflowService:
 
     async def preview_workflow(self, request: WorkflowCreateRequest) -> WorkflowPreview:
         enabled_stages = request.normalized_enabled_stages()
-        review_required_stages = set(request.normalized_review_required_stages())
-        run_id = request.run_id or self._generate_run_id()
         stages: list[WorkflowStagePlan] = []
-        for index, stage_name in enumerate(enabled_stages):
-            depends_on = enabled_stages[:index]
-            stages.append(
-                WorkflowStagePlan(
-                    stage_name=stage_name,
-                    depends_on=depends_on,
-                    requires_review=stage_name in review_required_stages,
-                )
-            )
+        for stage_name in enabled_stages:
+            stages.append(WorkflowStagePlan(stage_name=stage_name))
         return WorkflowPreview(
             task_name=request.task_name,
             backend=request.backend,
-            run_id=run_id,
             stages=tuple(stages),
         )
 
@@ -79,21 +68,15 @@ class WorkflowService:
         await self.initialize()
         self._validate_backend(request.backend)
 
-        enabled_stages = request.normalized_enabled_stages() or DEFAULT_STAGE_SEQUENCE
-        review_required_stages = request.normalized_review_required_stages()
-        run_id = request.run_id or self._generate_run_id()
-        self._validate_identifier("run_id", run_id)
-        self._validate_new_run_id(request.backend, request.task_name, run_id)
+        enabled_stages = request.normalized_enabled_stages()
 
         workflow = WorkflowRecord(
             workflow_id=self._generate_workflow_id(),
             task_name=request.task_name,
             backend=request.backend,
-            run_id=run_id,
             runtime=request.runtime,
             enabled_stages=enabled_stages,
-            review_required_stages=review_required_stages,
-            status=WorkflowStatus.DRAFT,
+            status=WorkflowStatus.IDLE,
         )
         await self.store.create_workflow(workflow)
         await self.store.append_event(
@@ -103,7 +86,6 @@ class WorkflowService:
                 event_type="workflow_created",
                 payload={
                     "backend": workflow.backend,
-                    "run_id": workflow.run_id,
                     "enabled_stages": [stage.value for stage in workflow.enabled_stages],
                 },
             )
@@ -118,6 +100,7 @@ class WorkflowService:
         )
 
     async def run_train_model(self, workflow_id: str, request: TrainModelRequest) -> StageRunRecord:
+        self._validate_identifier("run_id", request.run_id)
         return await self._run_stage(
             workflow_id=workflow_id,
             stage_name=StageName.TRAIN_MODEL,
@@ -139,23 +122,12 @@ class WorkflowService:
         )
 
     async def run_evaluate_model(self, workflow_id: str, request: EvaluateModelRequest) -> StageRunRecord:
+        self._validate_identifier("run_id", request.run_id)
         return await self._run_stage(
             workflow_id=workflow_id,
             stage_name=StageName.EVALUATE_MODEL,
             stage_payload=request.to_payload(),
         )
-
-    async def approve_stage(self, stage_run_id: str) -> StageRunRecord:
-        await self.initialize()
-        stage_run = await self._require_stage_run(stage_run_id)
-        async with self._open_runtime(stage_run.workflow_id) as runtime:
-            return await runtime.approve_stage(stage_run_id)
-
-    async def reject_stage(self, stage_run_id: str, *, reason: str) -> StageRunRecord:
-        await self.initialize()
-        stage_run = await self._require_stage_run(stage_run_id)
-        async with self._open_runtime(stage_run.workflow_id) as runtime:
-            return await runtime.reject_stage(stage_run_id, reason=reason)
 
     async def get_workflow_state(self, workflow_id: str, *, event_limit: int = 50) -> WorkflowSnapshot:
         await self.initialize()
@@ -219,9 +191,6 @@ class WorkflowService:
     def _generate_workflow_id(self) -> str:
         return f"wf_{datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')}"
 
-    def _generate_run_id(self) -> str:
-        return f"run_{datetime.utcnow().strftime('%Y%m%d_%H%M%S_%f')}"
-
     def _generate_stage_run_id(self, stage_name: StageName) -> str:
         return f"{stage_name.value}_{uuid.uuid4().hex[:12]}"
 
@@ -237,10 +206,3 @@ class WorkflowService:
             raise ValueError(f"{name} 不能为空字符串。")
         if "/" in value or "\\" in value:
             raise ValueError(f"{name} 不能包含路径分隔符。")
-
-    def _validate_new_run_id(self, backend: str, task_name: str, run_id: str) -> None:
-        from tunebench.artifacts import get_model_path_manager
-
-        version_dir = get_model_path_manager().build_layout(backend, task_name, run_id).version_dir
-        if version_dir.exists():
-            raise ValueError(f"run_id 已存在，请更换标识符: {version_dir}")

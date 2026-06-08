@@ -22,12 +22,9 @@ class _WorkflowRow(_Base):
     workflow_id: Mapped[str] = mapped_column(String(128), primary_key=True)
     task_name: Mapped[str] = mapped_column(String(255), nullable=False)
     backend: Mapped[str] = mapped_column(String(64), nullable=False)
-    run_id: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(64), nullable=False)
-    current_stage: Mapped[str | None] = mapped_column(String(128), nullable=True)
     runtime_payload: Mapped[dict] = mapped_column(JSON, nullable=False)
     enabled_stages: Mapped[list[str]] = mapped_column(JSON, nullable=False)
-    review_required_stages: Mapped[list[str]] = mapped_column(JSON, nullable=False)
     created_at: Mapped[str] = mapped_column(String(64), nullable=False)
     updated_at: Mapped[str] = mapped_column(String(64), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
@@ -46,7 +43,6 @@ class _StageRunRow(_Base):
     log_path: Mapped[str] = mapped_column(Text, nullable=False)
     request_path: Mapped[str] = mapped_column(Text, nullable=False)
     result_path: Mapped[str] = mapped_column(Text, nullable=False)
-    requires_review: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     pid: Mapped[int | None] = mapped_column(Integer, nullable=True)
     exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
     started_at: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -100,12 +96,9 @@ class SqliteWorkflowStateStore(WorkflowStateStore):
                 raise KeyError(f"workflow 不存在: {record.workflow_id}")
             row.task_name = record.task_name
             row.backend = record.backend
-            row.run_id = record.run_id
             row.status = record.status.value
-            row.current_stage = None if record.current_stage is None else record.current_stage.value
             row.runtime_payload = record.runtime.to_payload()
             row.enabled_stages = [stage.value for stage in record.enabled_stages]
-            row.review_required_stages = [stage.value for stage in record.review_required_stages]
             row.created_at = record.created_at
             row.updated_at = record.updated_at
             row.version = record.version
@@ -135,7 +128,6 @@ class SqliteWorkflowStateStore(WorkflowStateStore):
             row.log_path = record.log_path
             row.request_path = record.request_path
             row.result_path = record.result_path
-            row.requires_review = 1 if record.requires_review else 0
             row.pid = record.pid
             row.exit_code = record.exit_code
             row.started_at = record.started_at
@@ -174,12 +166,9 @@ class SqliteWorkflowStateStore(WorkflowStateStore):
             workflow_id=record.workflow_id,
             task_name=record.task_name,
             backend=record.backend,
-            run_id=record.run_id,
             status=record.status.value,
-            current_stage=(None if record.current_stage is None else record.current_stage.value),
             runtime_payload=record.runtime.to_payload(),
             enabled_stages=[stage.value for stage in record.enabled_stages],
-            review_required_stages=[stage.value for stage in record.review_required_stages],
             created_at=record.created_at,
             updated_at=record.updated_at,
             version=record.version,
@@ -191,12 +180,9 @@ class SqliteWorkflowStateStore(WorkflowStateStore):
                 "workflow_id": row.workflow_id,
                 "task_name": row.task_name,
                 "backend": row.backend,
-                "run_id": row.run_id,
                 "status": row.status,
-                "current_stage": row.current_stage,
                 "runtime": row.runtime_payload,
                 "enabled_stages": row.enabled_stages,
-                "review_required_stages": row.review_required_stages,
                 "created_at": row.created_at,
                 "updated_at": row.updated_at,
                 "version": row.version,
@@ -215,7 +201,6 @@ class SqliteWorkflowStateStore(WorkflowStateStore):
             log_path=record.log_path,
             request_path=record.request_path,
             result_path=record.result_path,
-            requires_review=1 if record.requires_review else 0,
             pid=record.pid,
             exit_code=record.exit_code,
             started_at=record.started_at,
@@ -238,7 +223,6 @@ class SqliteWorkflowStateStore(WorkflowStateStore):
                 "log_path": row.log_path,
                 "request_path": row.request_path,
                 "result_path": row.result_path,
-                "requires_review": bool(row.requires_review),
                 "pid": row.pid,
                 "exit_code": row.exit_code,
                 "started_at": row.started_at,

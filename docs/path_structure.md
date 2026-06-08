@@ -95,7 +95,7 @@ assets/
 - `<workflow_id>/stage_runs/<stage_run_id>/result.json`：单次环节执行结果快照。
 - `<workflow_id>/stage_runs/<stage_run_id>/output.log`：worker 子进程输出日志。
 
-这部分目录不承载训练模型产物，而是承载编排控制信息，供 MCP 查询、外部调度和人工审核使用。
+这部分目录不承载训练模型产物，而是承载编排控制信息，供 MCP 查询、外部调度和运行留痕使用。
 
 ## metadata 约束
 

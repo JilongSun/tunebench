@@ -24,17 +24,13 @@ def build_workflow_create_request(
     task_name: str,
     backend: str,
     runtime: dict[str, Any] | None = None,
-    run_id: str | None = None,
     enabled_stages: Sequence[str] | None = None,
-    review_required_stages: Sequence[str] | None = None,
 ) -> WorkflowCreateRequest:
     return WorkflowCreateRequest(
         task_name=task_name,
         backend=backend,
         runtime=WorkflowRuntimeConfig.from_payload(runtime),
-        run_id=run_id,
         enabled_stages=_normalize_stage_names(enabled_stages),
-        review_required_stages=_normalize_stage_names(review_required_stages),
     )
 
 
@@ -116,6 +112,7 @@ def build_structured_target_request(
 
 def build_train_model_request(
     dataset_version: str,
+    run_id: str,
     model_name: str | None = None,
     model_key: str | None = None,
     instruction: str | None = None,
@@ -134,6 +131,7 @@ def build_train_model_request(
     return TrainModelRequest.from_payload(
         {
             "dataset_version": dataset_version,
+            "run_id": run_id,
             "model_name": model_name,
             "model_key": model_key,
             "instruction": instruction,
@@ -154,6 +152,7 @@ def build_train_model_request(
 
 def build_evaluate_model_request(
     dataset_version: str,
+    run_id: str,
     artifact_type: str = "merged",
     batch_size: int = 8,
     max_sequence_length: int | None = None,
@@ -165,6 +164,7 @@ def build_evaluate_model_request(
     return EvaluateModelRequest.from_payload(
         {
             "dataset_version": dataset_version,
+            "run_id": run_id,
             "artifact_type": artifact_type,
             "batch_size": batch_size,
             "max_sequence_length": max_sequence_length,

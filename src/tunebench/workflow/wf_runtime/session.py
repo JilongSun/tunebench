@@ -13,10 +13,16 @@ from typing import Any
 
 import aiofiles
 
+from tunebench.artifacts import get_dataset_path_manager, get_model_path_manager
 from tunebench.workflow.models import (
+    BuildStructuredTargetRequest,
+    EvaluateModelRequest,
+    GenerateReasoningRequest,
+    PrepareDatasetRequest,
     StageName,
     StageRunRecord,
     StageStatus,
+    TrainModelRequest,
     WorkflowEventRecord,
     WorkflowRecord,
     WorkflowSnapshot,
@@ -53,6 +59,8 @@ class WorkflowRuntimeSession:
         self.store = store
         self.path_manager = path_manager
         self.watch_tasks = watch_tasks
+        self.dataset_path_manager = get_dataset_path_manager()
+        self.model_path_manager = get_model_path_manager()
         self._stage_run_id_factory = stage_run_id_factory
         self._event_id_factory = event_id_factory
         self._workflow: WorkflowRecord | None = None
@@ -73,7 +81,7 @@ class WorkflowRuntimeSession:
     async def start_stage(self, *, stage_name: StageName, stage_payload: dict[str, Any]) -> WorkflowStageLaunch:
         workflow = self.workflow
         stage_runs = await self.store.list_stage_runs(workflow.workflow_id)
-        self._ensure_stage_can_start(workflow, stage_name, stage_runs)
+        self._ensure_stage_can_start(workflow, stage_name, stage_payload, stage_runs)
 
         stage_run_id = self._stage_run_id_factory(stage_name)
         stage_paths = self.path_manager.ensure_stage_run_paths(workflow.workflow_id, stage_run_id)
@@ -84,7 +92,6 @@ class WorkflowRuntimeSession:
             "stage_name": stage_name.value,
             "task_name": workflow.task_name,
             "backend": workflow.backend,
-            "run_id": workflow.run_id,
             "request": stage_payload,
         }
         await self._write_json_file(stage_paths.request_path, worker_payload)
@@ -99,7 +106,6 @@ class WorkflowRuntimeSession:
             log_path=str(stage_paths.log_path),
             request_path=str(stage_paths.request_path),
             result_path=str(stage_paths.result_path),
-            requires_review=stage_name in set(workflow.review_required_stages),
         )
         await self.store.create_stage_run(stage_run)
         await self.store.append_event(
@@ -108,7 +114,11 @@ class WorkflowRuntimeSession:
                 workflow_id=workflow.workflow_id,
                 stage_run_id=stage_run_id,
                 event_type="stage_queued",
-                payload={"stage_name": stage_name.value},
+                payload={
+                    "stage_name": stage_name.value,
+                    "inputs": plan_payload.get("inputs", {}),
+                    "outputs": plan_payload.get("outputs", {}),
+                },
             )
         )
 
@@ -141,7 +151,6 @@ class WorkflowRuntimeSession:
         running_workflow = replace(
             workflow,
             status=WorkflowStatus.RUNNING,
-            current_stage=stage_name,
             updated_at=now,
             version=workflow.version + 1,
         )
@@ -159,75 +168,6 @@ class WorkflowRuntimeSession:
         self._workflow = running_workflow
         return WorkflowStageLaunch(stage_run=running_stage_run, process=process, log_handle=log_handle)
 
-    async def approve_stage(self, stage_run_id: str) -> StageRunRecord:
-        stage_run = await self._require_stage_run(stage_run_id)
-        if stage_run.status != StageStatus.AWAITING_REVIEW:
-            raise ValueError(f"环节未处于 awaiting_review: {stage_run_id}")
-
-        workflow = self.workflow
-        now = utc_now_iso()
-        updated_stage_run = replace(
-            stage_run,
-            status=StageStatus.APPROVED,
-            updated_at=now,
-            version=stage_run.version + 1,
-        )
-        updated_workflow = replace(
-            workflow,
-            status=(WorkflowStatus.COMPLETED if self._is_last_stage(workflow, stage_run.stage_name) else WorkflowStatus.READY_NEXT),
-            current_stage=None,
-            updated_at=now,
-            version=workflow.version + 1,
-        )
-        await self.store.update_stage_run(updated_stage_run)
-        await self.store.update_workflow(updated_workflow)
-        await self.store.append_event(
-            WorkflowEventRecord(
-                event_id=self._event_id_factory(),
-                workflow_id=workflow.workflow_id,
-                stage_run_id=stage_run.stage_run_id,
-                event_type="stage_approved",
-                payload={"stage_name": stage_run.stage_name.value},
-            )
-        )
-        self._workflow = updated_workflow
-        return updated_stage_run
-
-    async def reject_stage(self, stage_run_id: str, *, reason: str) -> StageRunRecord:
-        stage_run = await self._require_stage_run(stage_run_id)
-        if stage_run.status != StageStatus.AWAITING_REVIEW:
-            raise ValueError(f"环节未处于 awaiting_review: {stage_run_id}")
-
-        workflow = self.workflow
-        now = utc_now_iso()
-        updated_stage_run = replace(
-            stage_run,
-            status=StageStatus.REJECTED,
-            result_payload={**(stage_run.result_payload or {}), "review_rejection_reason": reason},
-            updated_at=now,
-            version=stage_run.version + 1,
-        )
-        updated_workflow = replace(
-            workflow,
-            status=WorkflowStatus.REJECTED,
-            current_stage=stage_run.stage_name,
-            updated_at=now,
-            version=workflow.version + 1,
-        )
-        await self.store.update_stage_run(updated_stage_run)
-        await self.store.update_workflow(updated_workflow)
-        await self.store.append_event(
-            WorkflowEventRecord(
-                event_id=self._event_id_factory(),
-                workflow_id=workflow.workflow_id,
-                stage_run_id=stage_run.stage_run_id,
-                event_type="stage_rejected",
-                payload={"stage_name": stage_run.stage_name.value, "reason": reason},
-            )
-        )
-        self._workflow = updated_workflow
-        return updated_stage_run
-
     async def get_state(self, *, event_limit: int = 50) -> WorkflowSnapshot:
         workflow = await self._require_workflow(self.workflow_id)
         self._workflow = workflow
@@ -238,7 +178,38 @@ class WorkflowRuntimeSession:
         self._workflow = workflow
         stage_runs = await self.store.list_stage_runs(self.workflow_id)
         events = await self.store.list_events(self.workflow_id, limit=event_limit)
-        return WorkflowSnapshot(workflow=workflow, stage_runs=tuple(stage_runs), events=tuple(events))
+
+        # 分离最近一次失败和已完成的历史产物
+        last_failure = self._find_last_failure(stage_runs)
+        completed_artifacts = tuple(
+            run for run in stage_runs if run.status == StageStatus.SUCCEEDED
+        )
+
+        return WorkflowSnapshot(
+            workflow=workflow,
+            stage_runs=tuple(stage_runs),
+            events=tuple(events),
+            last_failure=last_failure,
+            completed_artifacts=completed_artifacts,
+        )
+
+    @staticmethod
+    def _find_last_failure(stage_runs: list[StageRunRecord]) -> dict[str, Any] | None:
+        """查找最近一次失败的环节，返回简化的失败上下文。"""
+        for run in reversed(stage_runs):
+            if run.status != StageStatus.FAILED:
+                continue
+            failure_info: dict[str, Any] = {
+                "stage_run_id": run.stage_run_id,
+                "stage_name": run.stage_name.value,
+                "finished_at": run.finished_at,
+                "exit_code": run.exit_code,
+            }
+            if run.result_payload:
+                failure_info["message"] = run.result_payload.get("message", "")
+                failure_info["error_detail"] = run.result_payload.get("error", "")
+            return failure_info
+        return None
 
     async def tail_stage_log(self, stage_run_id: str, *, max_bytes: int = 8192) -> str:
         stage_run = await self._require_stage_run(stage_run_id)
@@ -261,15 +232,9 @@ class WorkflowRuntimeSession:
             }
 
         if result_payload.get("success"):
-            next_stage_status = StageStatus.AWAITING_REVIEW if stage_run.requires_review else StageStatus.APPROVED
-            next_workflow_status = (
-                WorkflowStatus.AWAITING_REVIEW
-                if stage_run.requires_review
-                else (WorkflowStatus.COMPLETED if self._is_last_stage(workflow, stage_run.stage_name) else WorkflowStatus.READY_NEXT)
-            )
+            next_stage_status = StageStatus.SUCCEEDED
         else:
             next_stage_status = StageStatus.FAILED
-            next_workflow_status = WorkflowStatus.FAILED
 
         updated_stage_run = replace(
             stage_run,
@@ -280,10 +245,11 @@ class WorkflowRuntimeSession:
             updated_at=now,
             version=stage_run.version + 1,
         )
+        stage_runs = await self.store.list_stage_runs(workflow.workflow_id)
+        updated_stage_runs = self._replace_stage_run(stage_runs, updated_stage_run)
         updated_workflow = replace(
             workflow,
-            status=next_workflow_status,
-            current_stage=(stage_run.stage_name if next_workflow_status in {WorkflowStatus.AWAITING_REVIEW, WorkflowStatus.FAILED} else None),
+            status=self._derive_workflow_status(updated_stage_runs),
             updated_at=now,
             version=workflow.version + 1,
         )
@@ -337,43 +303,21 @@ class WorkflowRuntimeSession:
         self,
         workflow: WorkflowRecord,
         stage_name: StageName,
+        stage_payload: dict[str, Any],
         stage_runs: list[StageRunRecord],
     ) -> None:
         if stage_name not in set(workflow.enabled_stages):
             raise ValueError(f"workflow 未启用环节: {stage_name.value}")
-        latest_runs = self._get_latest_stage_runs(stage_runs)
-        expected_stage = self._get_next_startable_stage(workflow, latest_runs)
-        if expected_stage is None:
-            raise ValueError(f"workflow 已无可执行环节: {workflow.workflow_id}")
-        if expected_stage != stage_name:
+        active_stage_run = next(
+            (record for record in stage_runs if record.status in {StageStatus.RUNNING, StageStatus.PENDING}),
+            None,
+        )
+        if active_stage_run is not None:
             raise ValueError(
-                f"当前仅允许执行下一环节 {expected_stage.value}，不能直接执行 {stage_name.value}。"
+                "workflow 当前仍有执行中的 operation: "
+                f"{active_stage_run.stage_name.value} ({active_stage_run.stage_run_id})"
             )
-        blocking_stage = latest_runs.get(stage_name)
-        if blocking_stage and blocking_stage.status in {StageStatus.RUNNING, StageStatus.PENDING, StageStatus.AWAITING_REVIEW}:
-            raise ValueError(f"环节仍未结束或待审核: {stage_name.value}")
-
-    def _get_next_startable_stage(
-        self,
-        workflow: WorkflowRecord,
-        latest_runs: dict[StageName, StageRunRecord],
-    ) -> StageName | None:
-        for stage_name in workflow.enabled_stages:
-            latest_run = latest_runs.get(stage_name)
-            if latest_run is None:
-                return stage_name
-            if latest_run.status in {StageStatus.APPROVED, StageStatus.SKIPPED}:
-                continue
-            if latest_run.status in {StageStatus.FAILED, StageStatus.REJECTED}:
-                return stage_name
-            return None
-        return None
-
-    def _get_latest_stage_runs(self, stage_runs: list[StageRunRecord]) -> dict[StageName, StageRunRecord]:
-        latest_runs: dict[StageName, StageRunRecord] = {}
-        for record in stage_runs:
-            latest_runs[record.stage_name] = record
-        return latest_runs
+        self._validate_stage_resources(workflow, stage_name, stage_payload)
 
     def _build_stage_plan_payload(
         self,
@@ -381,16 +325,161 @@ class WorkflowRuntimeSession:
         stage_name: StageName,
         stage_payload: dict[str, Any],
     ) -> dict[str, Any]:
-        stage_index = workflow.enabled_stages.index(stage_name)
         return {
-            "stage_name": stage_name.value,
-            "depends_on": [item.value for item in workflow.enabled_stages[:stage_index]],
-            "requires_review": stage_name in set(workflow.review_required_stages),
-            "inputs": stage_payload,
+            "operation": stage_name.value,
+            "workflow_id": workflow.workflow_id,
+            "inputs": self._describe_stage_inputs(stage_name, stage_payload),
+            "outputs": self._describe_stage_outputs(workflow, stage_name, stage_payload),
         }
 
-    def _is_last_stage(self, workflow: WorkflowRecord, stage_name: StageName) -> bool:
-        return bool(workflow.enabled_stages) and workflow.enabled_stages[-1] == stage_name
+    def _validate_stage_resources(
+        self,
+        workflow: WorkflowRecord,
+        stage_name: StageName,
+        stage_payload: dict[str, Any],
+    ) -> None:
+        if stage_name == StageName.PREPARE_DATASET:
+            request = PrepareDatasetRequest.from_payload(stage_payload)
+            self._ensure_dataset_absent(workflow.task_name, request.dataset_version)
+            return
+        if stage_name == StageName.GENERATE_REASONING:
+            request = GenerateReasoningRequest.from_payload(stage_payload)
+            self._ensure_dataset_exists(workflow.task_name, request.source_dataset_version)
+            self._ensure_dataset_absent(workflow.task_name, request.target_dataset_version)
+            return
+        if stage_name == StageName.BUILD_STRUCTURED_TARGET:
+            request = BuildStructuredTargetRequest.from_payload(stage_payload)
+            self._ensure_dataset_exists(workflow.task_name, request.source_dataset_version)
+            self._ensure_dataset_absent(workflow.task_name, request.target_dataset_version)
+            return
+        if stage_name == StageName.TRAIN_MODEL:
+            request = TrainModelRequest.from_payload(stage_payload)
+            self._ensure_identifier("run_id", request.run_id)
+            self._ensure_dataset_exists(workflow.task_name, request.dataset_version)
+            self._ensure_model_absent(workflow.backend, workflow.task_name, request.run_id)
+            return
+        if stage_name == StageName.EVALUATE_MODEL:
+            request = EvaluateModelRequest.from_payload(stage_payload)
+            self._ensure_identifier("run_id", request.run_id)
+            self._ensure_dataset_exists(workflow.task_name, request.dataset_version)
+            model_layout = self._ensure_model_exists(workflow.backend, workflow.task_name, request.run_id)
+            self._ensure_evaluate_outputs_absent(model_layout, export_xlsx=request.export_xlsx)
+            return
+        raise ValueError(f"未知 operation: {stage_name.value}")
+
+    def _describe_stage_inputs(self, stage_name: StageName, stage_payload: dict[str, Any]) -> dict[str, Any]:
+        if stage_name == StageName.PREPARE_DATASET:
+            request = PrepareDatasetRequest.from_payload(stage_payload)
+            return {"input_path": request.input_path}
+        if stage_name == StageName.GENERATE_REASONING:
+            request = GenerateReasoningRequest.from_payload(stage_payload)
+            return {
+                "source_dataset_version": request.source_dataset_version,
+                "teacher_model": request.teacher_model,
+            }
+        if stage_name == StageName.BUILD_STRUCTURED_TARGET:
+            request = BuildStructuredTargetRequest.from_payload(stage_payload)
+            return {"source_dataset_version": request.source_dataset_version}
+        if stage_name == StageName.TRAIN_MODEL:
+            request = TrainModelRequest.from_payload(stage_payload)
+            return {
+                "dataset_version": request.dataset_version,
+                "resume_lora": request.resume_lora,
+            }
+        request = EvaluateModelRequest.from_payload(stage_payload)
+        return {
+            "dataset_version": request.dataset_version,
+            "run_id": request.run_id,
+            "artifact_type": request.artifact_type,
+        }
+
+    def _describe_stage_outputs(
+        self,
+        workflow: WorkflowRecord,
+        stage_name: StageName,
+        stage_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        if stage_name == StageName.PREPARE_DATASET:
+            request = PrepareDatasetRequest.from_payload(stage_payload)
+            layout = self.dataset_path_manager.build_layout(workflow.task_name, request.dataset_version)
+            return {"dataset_version": request.dataset_version, "dataset_dir": str(layout.version_dir)}
+        if stage_name == StageName.GENERATE_REASONING:
+            request = GenerateReasoningRequest.from_payload(stage_payload)
+            layout = self.dataset_path_manager.build_layout(workflow.task_name, request.target_dataset_version)
+            return {"dataset_version": request.target_dataset_version, "dataset_dir": str(layout.version_dir)}
+        if stage_name == StageName.BUILD_STRUCTURED_TARGET:
+            request = BuildStructuredTargetRequest.from_payload(stage_payload)
+            layout = self.dataset_path_manager.build_layout(workflow.task_name, request.target_dataset_version)
+            return {"dataset_version": request.target_dataset_version, "dataset_dir": str(layout.version_dir)}
+        if stage_name == StageName.TRAIN_MODEL:
+            request = TrainModelRequest.from_payload(stage_payload)
+            layout = self.model_path_manager.build_layout(workflow.backend, workflow.task_name, request.run_id)
+            return {"run_id": request.run_id, "model_dir": str(layout.version_dir)}
+        request = EvaluateModelRequest.from_payload(stage_payload)
+        layout = self.model_path_manager.build_layout(workflow.backend, workflow.task_name, request.run_id)
+        return {
+            "run_id": request.run_id,
+            "dataset_version": request.dataset_version,
+            "eval_dir": str(layout.eval_dir),
+        }
+
+    def _derive_workflow_status(self, stage_runs: list[StageRunRecord]) -> WorkflowStatus:
+        if any(stage_run.status in {StageStatus.PENDING, StageStatus.RUNNING} for stage_run in stage_runs):
+            return WorkflowStatus.RUNNING
+        if stage_runs and stage_runs[-1].status == StageStatus.FAILED:
+            return WorkflowStatus.FAILED
+        return WorkflowStatus.IDLE
+
+    def _replace_stage_run(
+        self,
+        stage_runs: list[StageRunRecord],
+        updated_stage_run: StageRunRecord,
+    ) -> list[StageRunRecord]:
+        return [
+            (updated_stage_run if stage_run.stage_run_id == updated_stage_run.stage_run_id else stage_run)
+            for stage_run in stage_runs
+        ]
+
+    def _ensure_identifier(self, name: str, value: str) -> None:
+        if not value.strip():
+            raise ValueError(f"{name} 不能为空字符串。")
+        if "/" in value or "\\" in value:
+            raise ValueError(f"{name} 不能包含路径分隔符。")
+
+    def _ensure_dataset_exists(self, task_name: str, dataset_version: str) -> Path:
+        layout = self.dataset_path_manager.build_layout(task_name, dataset_version)
+        if not layout.version_dir.exists():
+            raise ValueError(f"dataset_version 不存在，无法作为输入: {layout.version_dir}")
+        return layout.version_dir
+
+    def _ensure_dataset_absent(self, task_name: str, dataset_version: str) -> Path:
+        layout = self.dataset_path_manager.build_layout(task_name, dataset_version)
+        if layout.version_dir.exists():
+            raise ValueError(f"dataset_version 已存在，可能覆盖已有产物: {layout.version_dir}")
+        return layout.version_dir
+
+    def _ensure_model_exists(self, backend: str, task_name: str, run_id: str):
+        layout = self.model_path_manager.build_layout(backend, task_name, run_id)
+        if not layout.version_dir.exists():
+            raise ValueError(f"run_id 不存在，无法作为输入: {layout.version_dir}")
+        return layout
+
+    def _ensure_model_absent(self, backend: str, task_name: str, run_id: str) -> None:
+        layout = self.model_path_manager.build_layout(backend, task_name, run_id)
+        if layout.version_dir.exists():
+            raise ValueError(f"run_id 已存在，可能覆盖已有产物: {layout.version_dir}")
+
+    def _ensure_evaluate_outputs_absent(self, model_layout: Any, *, export_xlsx: bool) -> None:
+        blocking_paths = [
+            model_layout.test_metrics_csv,
+            model_layout.test_label_metrics_csv,
+            model_layout.test_predictions_csv,
+        ]
+        if export_xlsx:
+            blocking_paths.append(model_layout.eval_report_xlsx)
+        existing_paths = [str(path) for path in blocking_paths if path.exists()]
+        if existing_paths:
+            raise ValueError("评测输出已存在，继续执行可能覆盖已有产物: " + ", ".join(existing_paths))
 
     async def _write_json_file(self, output_path: Path, payload: dict[str, Any]) -> None:
         async with aiofiles.open(output_path, "w", encoding="utf-8") as file_obj:

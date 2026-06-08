@@ -80,7 +80,6 @@ async def _run_train_stage(payload: dict[str, Any]) -> dict[str, Any]:
     spec = request.to_spec(
         task_name=str(payload["task_name"]),
         backend=str(payload["backend"]),
-        run_id=str(payload["run_id"]),
     )
     backend_runner = get_classification_backend(spec.backend)
     result = await asyncio.to_thread(backend_runner.run_train, spec)
@@ -112,7 +111,6 @@ async def _run_evaluate_stage(payload: dict[str, Any]) -> dict[str, Any]:
     spec = request.to_spec(
         task_name=str(payload["task_name"]),
         backend=str(payload["backend"]),
-        run_id=str(payload["run_id"]),
     )
     backend_runner = get_classification_backend(spec.backend)
     result = await asyncio.to_thread(backend_runner.run_evaluate, spec)
