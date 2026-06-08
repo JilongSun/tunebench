@@ -22,7 +22,7 @@ from .names import (
     TRAIN_EVAL_METRICS_PLOT_FILENAME,
     TRAIN_LOSS_PLOT_FILENAME,
     TRAIN_METRICS_FILENAME,
-    VALIDATION_LABEL_METRICS_FILENAME,
+    # VALIDATION_LABEL_METRICS_FILENAME,  # 暂时禁用
 )
 
 
@@ -87,7 +87,7 @@ class ModelArtifactLayout:
     merged_model_dir: Path
     eval_dir: Path
     train_metrics_csv: Path
-    validation_label_metrics_csv: Path
+    # validation_label_metrics_csv: Path  # 暂时禁用
     train_loss_plot_png: Path
     train_eval_metrics_plot_png: Path
     test_metrics_csv: Path
@@ -143,9 +143,9 @@ class ModelPathManager:
         """获取训练过程指标 CSV。"""
         return self.get_eval_dir(backend, task_name, run_id) / TRAIN_METRICS_FILENAME
 
-    def get_validation_label_metrics_csv(self, backend: str, task_name: str, run_id: str) -> Path:
-        """获取训练期 validation 按标签指标 CSV。"""
-        return self.get_eval_dir(backend, task_name, run_id) / VALIDATION_LABEL_METRICS_FILENAME
+    # def get_validation_label_metrics_csv(self, backend: str, task_name: str, run_id: str) -> Path:
+    #     """获取训练期 validation 按标签指标 CSV。"""
+    #     return self.get_eval_dir(backend, task_name, run_id) / VALIDATION_LABEL_METRICS_FILENAME
 
     def get_train_loss_plot_png(self, backend: str, task_name: str, run_id: str) -> Path:
         """获取训练 loss 折线图。"""
@@ -196,7 +196,7 @@ class ModelPathManager:
             merged_model_dir=version_dir / MERGED_MODEL_DIRNAME,
             eval_dir=version_dir / EVAL_DIRNAME,
             train_metrics_csv=version_dir / EVAL_DIRNAME / TRAIN_METRICS_FILENAME,
-            validation_label_metrics_csv=version_dir / EVAL_DIRNAME / VALIDATION_LABEL_METRICS_FILENAME,
+            # validation_label_metrics_csv=version_dir / EVAL_DIRNAME / VALIDATION_LABEL_METRICS_FILENAME,  # 暂时禁用
             train_loss_plot_png=version_dir / EVAL_DIRNAME / TRAIN_LOSS_PLOT_FILENAME,
             train_eval_metrics_plot_png=version_dir / EVAL_DIRNAME / TRAIN_EVAL_METRICS_PLOT_FILENAME,
             test_metrics_csv=version_dir / EVAL_DIRNAME / TEST_METRICS_FILENAME,

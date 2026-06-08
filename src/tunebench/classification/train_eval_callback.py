@@ -11,7 +11,7 @@ from tunebench.artifacts import (
     FileSystemEvalArtifactStore,
     ModelArtifactLayout,
     TRAIN_METRICS_ARTIFACT_NAME,
-    VALIDATION_LABEL_METRICS_ARTIFACT_NAME,
+    # VALIDATION_LABEL_METRICS_ARTIFACT_NAME,  # 暂时禁用
 )
 from tunebench.classification.metrics import extract_label_metrics_from_flattened
 
@@ -122,20 +122,21 @@ class ClassificationTrainEvalCallback(TrainerCallback):
         label_metrics = extract_label_metrics_from_flattened(metrics)
         if not label_metrics:
             return
-        self.artifact_store.append_artifact_rows(
-            model_layout=self.model_layout,
-            artifact_name=VALIDATION_LABEL_METRICS_ARTIFACT_NAME,
-            fieldnames=_LABEL_METRICS_FIELDNAMES,
-            rows=_build_label_metrics_rows(
-                run_id=self.run_id,
-                stage=stage,
-                split=split,
-                epoch=epoch,
-                step=step,
-                id_to_label=self.id_to_label,
-                label_metrics=label_metrics,
-            ),
-        )
+        # 暂时禁用 validation_label_metrics 落盘（validation 指标已包含在 train_metrics 中）
+        # self.artifact_store.append_artifact_rows(
+        #     model_layout=self.model_layout,
+        #     artifact_name=VALIDATION_LABEL_METRICS_ARTIFACT_NAME,
+        #     fieldnames=_LABEL_METRICS_FIELDNAMES,
+        #     rows=_build_label_metrics_rows(
+        #         run_id=self.run_id,
+        #         stage=stage,
+        #         split=split,
+        #         epoch=epoch,
+        #         step=step,
+        #         id_to_label=self.id_to_label,
+        #         label_metrics=label_metrics,
+        #     ),
+        # )
 
     def suppress_next_evaluate_artifact(self) -> None:
         """跳过下一次 on_evaluate 落盘，用于显式最终评估。"""

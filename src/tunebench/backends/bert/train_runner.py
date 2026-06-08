@@ -489,7 +489,7 @@ class BertClassificationTrainRunner:
                 "output_dir": str(model_layout.version_dir),
                 "metadata": str(model_layout.metadata_path),
                 "train_metrics_csv": str(model_layout.train_metrics_csv),
-                "validation_label_metrics_csv": str(model_layout.validation_label_metrics_csv),
+                # "validation_label_metrics_csv": str(model_layout.validation_label_metrics_csv),  # 暂时禁用
                 "train_loss_plot_png": str(model_layout.train_loss_plot_png),
                 "train_eval_metrics_plot_png": str(model_layout.train_eval_metrics_plot_png),
             },
@@ -613,7 +613,7 @@ class BertClassificationTrainRunner:
                 artifacts["train_eval_metrics_plot_png"] = train_metrics_plots.eval_metrics_plot_path
             if validation_file is not None:
                 artifacts["validation_file"] = validation_file
-                artifacts["validation_label_metrics_csv"] = model_layout.validation_label_metrics_csv
+                # artifacts["validation_label_metrics_csv"] = model_layout.validation_label_metrics_csv  # 暂时禁用
             if spec.export_dir is not None:
                 export_metadata_path = spec.export_dir / f"{run_id}_{METADATA_FILENAME}"
                 self._write_metadata(export_metadata_path, metadata)

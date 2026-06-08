@@ -12,7 +12,7 @@ from tunebench.artifacts.names import (
     TEST_METRICS_ARTIFACT_NAME,
     TEST_PREDICTIONS_ARTIFACT_NAME,
     TRAIN_METRICS_ARTIFACT_NAME,
-    VALIDATION_LABEL_METRICS_ARTIFACT_NAME,
+    # VALIDATION_LABEL_METRICS_ARTIFACT_NAME,  # 暂时禁用
 )
 from tunebench.artifacts.path import ModelArtifactLayout
 
@@ -49,7 +49,7 @@ class FileSystemEvalArtifactStore(EvalArtifactStore):
         self.train_metrics_plot_exporter = train_metrics_plot_exporter or MatplotlibTrainMetricsPlotExporter()
         self.csv_artifact_path_getters = {
             TRAIN_METRICS_ARTIFACT_NAME: lambda model_layout: model_layout.train_metrics_csv,
-            VALIDATION_LABEL_METRICS_ARTIFACT_NAME: lambda model_layout: model_layout.validation_label_metrics_csv,
+            # VALIDATION_LABEL_METRICS_ARTIFACT_NAME: lambda model_layout: model_layout.validation_label_metrics_csv,  # 暂时禁用
             TEST_METRICS_ARTIFACT_NAME: lambda model_layout: model_layout.test_metrics_csv,
             TEST_LABEL_METRICS_ARTIFACT_NAME: lambda model_layout: model_layout.test_label_metrics_csv,
             TEST_PREDICTIONS_ARTIFACT_NAME: lambda model_layout: model_layout.test_predictions_csv,
@@ -80,7 +80,8 @@ class FileSystemEvalArtifactStore(EvalArtifactStore):
     ) -> EvalReportExportResult:
         artifact_names = artifact_names or list(DEFAULT_EVAL_REPORT_ARTIFACT_NAMES)
         csv_sources = [self._resolve_csv_path(model_layout, artifact_name) for artifact_name in artifact_names]
-        optional_sources = {model_layout.train_metrics_csv, model_layout.validation_label_metrics_csv}
+        optional_sources = {model_layout.train_metrics_csv}
+        # optional_sources = {model_layout.train_metrics_csv, model_layout.validation_label_metrics_csv}  # 暂时禁用 validation_label_metrics
         return self.xlsx_exporter.export_from_csv_sources(
             csv_sources=csv_sources,
             output_path=model_layout.eval_report_xlsx,

@@ -33,8 +33,8 @@ from .names import (
 	TRAIN_LOSS_PLOT_FILENAME,
 	TRAIN_METRICS_ARTIFACT_NAME,
 	TRAIN_METRICS_FILENAME,
-	VALIDATION_LABEL_METRICS_ARTIFACT_NAME,
-	VALIDATION_LABEL_METRICS_FILENAME,
+	# VALIDATION_LABEL_METRICS_ARTIFACT_NAME,  # 暂时禁用
+	# VALIDATION_LABEL_METRICS_FILENAME,  # 暂时禁用
 )
 from .path import (
 	DatasetArtifactLayout,
@@ -87,8 +87,8 @@ __all__ = [
 	"TRAIN_METRICS_FILENAME",
 	"TrainingHyperparameters",
 	"TrainMetricsPlotsExportResult",
-	"VALIDATION_LABEL_METRICS_ARTIFACT_NAME",
-	"VALIDATION_LABEL_METRICS_FILENAME",
+	# "VALIDATION_LABEL_METRICS_ARTIFACT_NAME",  # 暂时禁用
+	# "VALIDATION_LABEL_METRICS_FILENAME",  # 暂时禁用
 	"XlsxEvalReportExporter",
 	"build_classification_train_manifest",
 	"get_dataset_path_manager",
