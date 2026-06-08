@@ -29,30 +29,49 @@ TuneBench 按核心流程层与外部接入层组织：
 
 更完整的模块说明见 `docs/developer_overview.md`。
 
-## 环境要求
+## 部署与使用
 
-- Python 3.11.15
-- 可用的 CUDA 训练环境
+### 环境要求
+
+- Conda（用于创建 Python 3.11.15 环境）
 - Poetry
+- 可用的 CUDA 训练环境
 - 若使用 LlamaFactory 路径，需要可用的 `llamafactory-cli`
 
-## 安装
+### 部署
 
-1. 拉取仓库代码。
-2. 准备 Python 3.11.15 环境。
-3. 通过 Poetry 安装依赖。
-4. 安装完成后可使用 `tunebench` 或 `tb` 命令。
+拉取仓库代码后，在项目根目录执行：
 
-## 使用流程
+```bash
+make build
+```
 
-日常使用通常按以下顺序进行：
+该命令会自动在项目根目录创建 `.tb311` conda 环境（Python 3.11.15），并通过 Poetry 安装所有依赖。
+
+### 使用方式
+
+部署完成后，TuneBench 提供两种使用方式。
+
+#### 方式一：CLI 命令行
+
+直接使用 `tunebench` 或 `tb` 命令执行数据准备、训练、评估和推理：
+
+```bash
+# 查看可用命令
+tb --help
+
+# 查看具体命令参数
+tb train --help
+tb evaluate --help
+```
+
+日常使用流程：
 
 1. 执行 `prepare-data` 生成训练、验证或测试数据。
 2. 按任务需要执行 `generate-reasoning` 与 `build-structured-target`。
 3. 执行 `train` 启动训练或继续训练。
 4. 执行 `evaluate` 生成独立评测结果。
 5. 需要单条推理时，执行 `chat`。
-6. 需要对外提供 MCP 服务时，执行 `make run`。
 
 可用命令包括：
 
@@ -64,23 +83,16 @@ TuneBench 按核心流程层与外部接入层组织：
 - `chat`
 - `plan`
 
-参数说明可通过命令行帮助查看，例如：
+#### 方式二：MCP 服务
 
-```bash
-tb train --help
-tb evaluate --help
-```
+TuneBench 提供 streamable HTTP 方式的 MCP 服务，供外部 agent 调用 workflow 创建、任务执行、状态查询、日志读取和审核推进能力。
 
-## MCP 部署
+| 操作 | 命令 |
+|------|------|
+| 启动 | `make run` |
+| 停止 | `make stop` |
+| 状态 | `make status` |
 
-TuneBench 的 MCP 服务仅提供 streamable HTTP 部署方式，不提供 stdio 与 SSE。
-
-- 启动命令：`make run`
-- 停止命令：`make stop`
-- 状态命令：`make status`
-- 启动脚本：`scripts/run_mcp.sh`
-- 停止脚本：`scripts/stop_mcp.sh`
-- 状态脚本：`scripts/status_mcp.sh`
 - 默认地址：`http://127.0.0.1:8888/mcp`
 - 日志文件：`runtime/mcp/tunebench_mcp.log`
 - PID 文件：`runtime/mcp/tunebench_mcp.pid`
