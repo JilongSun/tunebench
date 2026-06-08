@@ -71,6 +71,8 @@ preview_workflow → 确认环节拓扑和审核设置 → create_workflow
 
 先用 `preview_workflow` 预览即将创建的 workflow 结构，确认无误后调用 `create_workflow` 正式创建。
 
+**GPU 选择**：在创建 workflow 之前，务必向用户确认使用哪张 GPU 卡。当前环境可用显卡为 **4、5、6、7**（四选一）。确认后，将选中的显卡编号写入 `runtime.visible_devices`，例如 `"visible_devices": ["4"]`。如果用户没有明确指定，默认使用 `"4"`。
+
 ### 2. 按顺序执行环节
 
 ```
@@ -98,5 +100,7 @@ get_workflow_state → tail_stage_log → approve_stage / reject_stage
 
 ## 详细参考
 
-- [MCP 工具接口说明](./references/mcp-interfaces.md) — 每个 MCP 工具的详细参数说明
+- [MCP 工具接口说明](./references/mcp-interfaces.md) — 每个 MCP 工具的流程位置和关键参数概览
+- [复杂参数详解](./references/complex-params.md) — `runtime`、`lora` 等嵌套配置对象的完整字段、默认值、约束与后端差异
+- [资产目录结构](./references/asset-structure.md) — `task_name`、`run_id`、`dataset_version` 等参数在文件系统上的组织方式
 - [项目边界](./references/project-boundaries.md) — 当前支持的能力范围和限制

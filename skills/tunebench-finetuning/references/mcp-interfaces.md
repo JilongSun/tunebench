@@ -22,7 +22,7 @@
 
 - `task_name`：任务名。
 - `backend`：后端类型，通常为 `bert` 或 `llamafactory`。
-- `runtime`：运行时配置载荷，用于表达环境或执行上下文。
+- `runtime`：运行时配置载荷（GPU 设备、环境变量等），详见 [复杂参数详解 - runtime](./complex-params.md#runtime---运行时配置)。
 - `enabled_stages`：本次启用的环节列表。
 - `review_required_stages`：执行成功后需要人工审核的环节列表。
 
@@ -43,14 +43,9 @@
 
 **作用**：触发数据准备环节，生成训练集、验证集或测试集版本。
 
-**关键参数**：
+**关键参数**：详见 [复杂参数详解 - 数据准备参数](./complex-params.md#数据准备参数run_prepare_dataset-顶层参数)。
 
-- `workflow_id`：所属 workflow。
-- `input_path`：输入表格路径。
-- `dataset_version`：目标数据版本号。
-- `text_key`、`label_key`：文本列与标签列字段名。
-- `validation_ratio`：验证集切分比例。
-- `is_test`：是否生成测试数据。
+核心必填参数：`workflow_id`、`input_path`、`dataset_version`、`text_key`、`label_key`。
 
 ### `run_generate_reasoning`
 
@@ -58,12 +53,9 @@
 
 **作用**：对已有数据版本生成 reasoning 增强结果。
 
-**关键参数**：
+**关键参数**：详见 [复杂参数详解 - Reasoning 生成参数](./complex-params.md#reasoning-生成参数run_generate_reasoning-顶层参数)。
 
-- `source_dataset_version`：源数据版本。
-- `target_dataset_version`：目标增强版本。
-- `teacher_model`、`endpoint_url`：教师模型及其服务地址。
-- `splits`：处理哪些数据切分，默认是训练集和验证集。
+核心必填参数：`workflow_id`、`source_dataset_version`、`target_dataset_version`、`teacher_model`、`endpoint_url`。
 
 ### `run_build_structured_target`
 
@@ -71,11 +63,9 @@
 
 **作用**：把 reasoning 数据继续转换为结构化目标，供下游训练使用。
 
-**关键参数**：
+**关键参数**：详见 [复杂参数详解 - 结构化目标构建参数](./complex-params.md#结构化目标构建参数run_build_structured_target-顶层参数)。
 
-- `source_dataset_version`：源 reasoning 数据版本。
-- `target_dataset_version`：目标结构化版本。
-- `confidence`：结构化目标的置信阈值。
+核心必填参数：`workflow_id`、`source_dataset_version`、`target_dataset_version`。
 
 ### `run_train_model`
 
@@ -83,13 +73,10 @@
 
 **作用**：启动分类训练或继续训练。
 
-**关键参数**：
+**关键参数**：详见 [复杂参数详解 - 训练超参数](./complex-params.md#训练超参数run_train_model-顶层参数)。
 
-- `dataset_version`：训练所用数据版本。
-- `model_name` / `model_key`：模型路径或注册键。
-- `resume_lora`：继续训练时的已有 LoRA 路径。
-- `instruction`、`reasoning_mode`：LlamaFactory 路径下的重要训练语义参数。
-- `lora`：LoRA 配置载荷。
+- `lora`：LoRA 配置载荷，详见 [复杂参数详解 - lora](./complex-params.md#lora---lora-配置)。
+- 后端约束：BERT 需 `model_name`，LlamaFactory 需 `model_key`；`instruction` 仅 LlamaFactory 可用。
 
 ### `run_evaluate_model`
 
@@ -97,11 +84,10 @@
 
 **作用**：对训练产物执行独立评测，输出指标与明细。
 
-**关键参数**：
+**关键参数**：详见 [复杂参数详解 - 评测参数](./complex-params.md#评测参数run_evaluate_model-顶层参数)。
 
-- `dataset_version`：评测集版本。
-- `artifact_type`：评测哪类产物，如 `merged`。
-- `prompt_engine`、`enable_thinking`：LlamaFactory / Qwen 评测时的重要渲染控制参数。
+- `prompt_engine`、`enable_thinking`、`max_new_tokens` 仅 LlamaFactory 后端可用。
+- `enable_thinking` 仅在 `prompt_engine = "native"` 时有效。
 
 ### `approve_stage`
 
