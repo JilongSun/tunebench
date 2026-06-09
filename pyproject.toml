@@ -26,6 +26,7 @@ dependencies = [
     "greenlet>=3.0",
     "python-dotenv",
     "mcp",
+    "mcp-use",
     "apscheduler",
     "aiofiles",
 ]
