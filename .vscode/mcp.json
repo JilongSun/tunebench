@@ -1,0 +1,9 @@
+{
+	"servers": {
+		"mcp-use": {
+			"url": "https://docs.mcp-use.com/mcp",
+			"type": "http"
+		}
+	},
+	"inputs": []
+}

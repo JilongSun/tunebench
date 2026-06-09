@@ -4,17 +4,17 @@
 
 ## 概述
 
-MCP Server 将 TuneBench 的 workflow 能力暴露为 MCP 工具和资源，供外部 agent 调用。为便于后续功能扩展，采用路由划分架构：
+基于 mcp-use 框架，MCP Server 将 TuneBench 的 workflow 能力暴露为 MCP 工具和资源，供外部 agent 调用。采用 `MCPServer` + `MCPRouter` 的模块化路由架构：
 
 ```
 tunebench_mcp/
-├── server.py           # Server 实例、lifespan、路由注册汇总
+├── server.py           # MCPServer 实例 + router 汇总
 ├── adapters.py         # MCP 参数 → workflow 请求对象的协议适配
 ├── __main__.py         # 启动入口
 ├── debug_server.py     # 调试启动脚本
-└── routes/             # 路由模块
+└── routes/             # 路由模块（每个导出 MCPRouter 实例）
     ├── __init__.py     # 路由包入口
-    ├── shared.py       # 路由间共享辅助函数
+    ├── shared.py       # 路由间共享（WorkflowService 闭包单例）
     ├── execute.py      # 阶段操作执行路由
     ├── manage.py       # Workflow 生命周期管理路由
     ├── utility.py      # 辅助工具路由
@@ -29,13 +29,13 @@ tunebench_mcp/
 
 | 工具名 | 说明 |
 |--------|------|
-| `run_prepare_dataset` | 启动数据准备环节 |
-| `run_generate_reasoning` | 启动 reasoning 数据增强环节 |
-| `run_build_structured_target` | 启动 structured target 构建环节 |
-| `run_train_model` | 启动训练环节 |
-| `run_evaluate_model` | 启动评测环节 |
+| `execute_run_prepare_dataset` | 启动数据准备环节 |
+| `execute_run_generate_reasoning` | 启动 reasoning 数据增强环节 |
+| `execute_run_build_structured_target` | 启动 structured target 构建环节 |
+| `execute_run_train_model` | 启动训练环节 |
+| `execute_run_evaluate_model` | 启动评测环节 |
 
-这些工具的执行链路为：`MCP 工具 → adapters.py 构建请求对象 → WorkflowService → 子进程执行`。
+执行链路：`MCP 工具 → adapters.py 构建请求对象 → WorkflowService → 子进程执行`。
 
 ### manage — Workflow 生命周期管理
 
@@ -43,10 +43,10 @@ tunebench_mcp/
 
 | 工具名 | 说明 |
 |--------|------|
-| `preview_workflow` | 预览 workflow 计划 |
-| `create_workflow` | 创建新的 workflow |
-| `get_workflow_state` | 读取 workflow 当前状态 |
-| `tail_stage_log` | 读取环节日志尾部 |
+| `manage_preview_workflow` | 预览 workflow 计划 |
+| `manage_create_workflow` | 创建新的 workflow |
+| `manage_get_workflow_state` | 读取 workflow 当前状态 |
+| `manage_tail_stage_log` | 读取环节日志尾部 |
 
 **待扩展**：`delete_workflow`、`list_workflows` 等 CRUD 工具。
 
@@ -56,7 +56,7 @@ tunebench_mcp/
 
 | 工具名 | 说明 |
 |--------|------|
-| `get_gpu_status` | 查询当前显卡使用情况（模拟方法，待接入真实数据） |
+| `utility_get_gpu_status` | 查询当前显卡使用情况（模拟方法，待接入真实数据） |
 
 **待扩展**：环境检查、路径转换、可用后端列表查询等辅助工具。
 
@@ -74,26 +74,32 @@ tunebench_mcp/
 
 ## 注册机制
 
-每个路由模块导出一个 `register(mcp: FastMCP) -> None` 函数，在函数内部使用 `@mcp.tool()` 或 `@mcp.resource()` 装饰器注册工具或资源。
+每个路由模块创建一个 `MCPRouter` 实例，使用 `@router.tool()` 或 `@router.resource()` 装饰器定义工具/资源。
 
-`server.py` 在模块加载时调用 `_register_routes()` 统一注册所有路由：
+`server.py` 创建 `MCPServer` 后，通过 `include_router` 统一注册：
 
 ```python
-def _register_routes() -> None:
-    manage.register(mcp)
-    execute.register(mcp)
-    utility.register(mcp)
-    assets.register(mcp)
+from mcp_use.server import MCPServer
+from .routes.execute import router as execute_router
+from .routes.manage import router as manage_router
+from .routes.utility import router as utility_router
+from .routes.assets import router as assets_router
 
-_register_routes()
+mcp = MCPServer(name="TuneBench", version="0.1.0")
+
+mcp.include_router(manage_router)
+mcp.include_router(execute_router)
+mcp.include_router(utility_router)
+mcp.include_router(assets_router)
 ```
+
+`MCPRouter` 的 `name` 属性会自动作为工具名前缀（如 `execute_run_train_model`）。
 
 ## 添加新路由
 
 1. 在 `routes/` 下创建新模块文件（如 `routes/new_route.py`）。
-2. 实现 `register(mcp: FastMCP) -> None` 函数。
-3. 在 `routes/__init__.py` 中导入并导出新模块。
-4. 在 `server.py` 的 `_register_routes()` 中调用 `new_route.register(mcp)`。
+2. 创建 `router = MCPRouter(name="new_route", ...)` 实例，用装饰器定义工具/资源。
+3. 在 `server.py` 中导入并调用 `mcp.include_router(new_route_router)`。
 
 ## 执行链路
 
@@ -102,11 +108,11 @@ _register_routes()
 ```
 外部 MCP Client
     ↓
-server.py (FastMCP 实例，接收请求)
+server.py (MCPServer 实例，接收请求)
     ↓
-routes/execute.py (run_train_model 工具函数)
+routes/execute.py (execute_run_train_model 工具函数)
     ↓
-routes/shared.py (_get_workflow_service 获取 WorkflowService)
+routes/shared.py (get_workflow_service 闭包获取 WorkflowService 单例)
     ↓
 adapters.py (build_train_model_request 构建请求对象)
     ↓
@@ -117,8 +123,25 @@ WorkflowService.run_train_model()
 
 ## 共享层
 
-`routes/shared.py` 提供路由间共用的辅助函数，当前包含：
-
-- `_get_workflow_service(ctx)`：从 MCP 上下文提取 WorkflowService 实例。
+`routes/shared.py` 通过闭包管理 `WorkflowService` 单例，工具函数直接 `await get_workflow_service()` 获取，不再依赖 MCP Context 传参。
 
 `adapters.py` 提供 MCP 参数到 workflow 请求对象的转换函数，保持与 `tunebench.workflow.models` 的协议对齐。
+
+## Server + App 双模式
+
+当前以纯 Server 运行：
+
+```python
+mcp.run(transport="streamable-http", host=..., port=...)
+```
+
+未来如需挂载到 FastAPI 应用，利用 `mcp.app`（底层 ASGI 应用）即可：
+
+```python
+from fastapi import FastAPI
+app = FastAPI(...)
+# 通过 lifespan 注入 mcp.session_manager._task_group
+app.mount("/agent", mcp.app)
+```
+
+路由定义在 `MCPRouter` 中，两种模式共用同一套工具定义。
