@@ -98,6 +98,20 @@ TuneBench 提供 streamable HTTP 方式的 MCP 服务，供外部 agent 调用 w
 - PID 文件：`runtime/mcp/tunebench_mcp.pid`
 - 外部 agent 配置：`configs/mcp/tunebench.http.json`
 
+#### 调试模式
+
+设置环境变量 `TUNEBENCH_MCP_DEBUG=true` 启动 MCP 服务，可在 `http://127.0.0.1:8888/inspector` 访问 MCP Inspector 页面，用于实时监控和调试 MCP 工具调用。
+
+```bash
+# 方式一：通过环境变量
+TUNEBENCH_MCP_DEBUG=true make run
+
+# 方式二：使用调试启动脚本（自动开启 debug 模式）
+# 在 VS Code 中对 src/tunebench_mcp/debug_server.py 按 F5 调试运行
+```
+
+进入 Inspector 页面后，将 MCP URL 改为 `http://127.0.0.1:8888/inspector` 即可开始监控。
+
 如需调整监听地址、端口或路径，可在执行 `make run` 前设置以下环境变量：
 
 - `TUNEBENCH_MCP_HOST`

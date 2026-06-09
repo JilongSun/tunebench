@@ -39,6 +39,7 @@ def _normalize_http_path(value: str) -> str:
 _MCP_HOST = os.getenv("TUNEBENCH_MCP_HOST", "127.0.0.1")
 _MCP_PORT = _read_env_int("TUNEBENCH_MCP_PORT", 8888)
 _MCP_HTTP_PATH = _normalize_http_path(os.getenv("TUNEBENCH_MCP_PATH", "/mcp"))
+_MCP_DEBUG = os.getenv("TUNEBENCH_MCP_DEBUG", "false").lower() in ("true", "1", "yes")
 
 
 mcp = MCPServer(
@@ -60,13 +61,20 @@ mcp.include_router(utility.router)
 mcp.include_router(assets.router)
 
 
-def main() -> int:
-    """MCP server 启动入口。"""
+def main(debug: bool = False) -> int:
+    """MCP server 启动入口。
+
+    :param debug: 是否开启调试模式（启用 MCP inspector 页面）。
+    """
+    debug_mode = debug or _MCP_DEBUG
     logger.info(
-        "启动 MCP server transport=streamable-http host=%s port=%s path=%s",
+        "启动 MCP server transport=streamable-http host=%s port=%s path=%s debug=%s",
         _MCP_HOST,
         _MCP_PORT,
         _MCP_HTTP_PATH,
+        debug_mode,
     )
-    mcp.run(transport="streamable-http")
+    if debug_mode:
+        logger.info("调试模式已启用，可通过 http://%s:%s/inspector 访问 MCP Inspector", _MCP_HOST, _MCP_PORT)
+    mcp.run(transport="streamable-http", debug=debug_mode)
     return 0

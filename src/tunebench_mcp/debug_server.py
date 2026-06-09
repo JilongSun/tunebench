@@ -23,4 +23,5 @@ if str(src_path) not in sys.path:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    # debug=True 启用 MCP Inspector，可通过 http://localhost:8888/inspector 访问
+    sys.exit(main(debug=True))
