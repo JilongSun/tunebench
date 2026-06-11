@@ -10,9 +10,11 @@ from pathlib import Path
 _DEFAULT_LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
 _DEFAULT_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 _RESULT_LOGGER_NAME = "tunebench.result"
-_LOG_DIRNAME = ".log"
+_MCP_LOGGER_NAME = "tunebench.mcp"
+_LOG_DIRNAME = "runtime/logs"
 _APP_LOG_FILENAME = "tunebench.log"
 _RESULT_LOG_FILENAME = "result.log"
+_MCP_LOG_FILENAME = "tunebench_mcp.log"
 
 
 def _get_project_root() -> Path:
@@ -21,7 +23,7 @@ def _get_project_root() -> Path:
 
 
 def _ensure_log_dir() -> Path:
-    """确保项目根目录下的 .log 文件夹存在。"""
+    """确保项目根目录下的 runtime/logs 文件夹存在。"""
     log_dir = _get_project_root() / _LOG_DIRNAME
     log_dir.mkdir(parents=True, exist_ok=True)
     return log_dir
@@ -76,6 +78,24 @@ def setup_logging(level: int = logging.INFO) -> None:
         result_file_handler.setLevel(level)
         result_file_handler.setFormatter(logging.Formatter("%(message)s"))
         result_logger.addHandler(result_file_handler)
+
+    # MCP 日志：独立文件，不向 tunebench 父 logger 传播
+    mcp_logger = logging.getLogger(_MCP_LOGGER_NAME)
+    mcp_log_path = log_dir / _MCP_LOG_FILENAME
+    if not mcp_logger.handlers:
+        mcp_logger.setLevel(level)
+        mcp_logger.propagate = False
+        stderr_handler = logging.StreamHandler(sys.stderr)
+        stderr_handler.setLevel(level)
+        stderr_handler.setFormatter(logging.Formatter(_DEFAULT_LOG_FORMAT, _DEFAULT_DATE_FORMAT))
+        mcp_logger.addHandler(stderr_handler)
+    else:
+        mcp_logger.setLevel(level)
+    if not _has_file_handler(mcp_logger, mcp_log_path):
+        mcp_file_handler = logging.FileHandler(mcp_log_path, encoding="utf-8")
+        mcp_file_handler.setLevel(level)
+        mcp_file_handler.setFormatter(logging.Formatter(_DEFAULT_LOG_FORMAT, _DEFAULT_DATE_FORMAT))
+        mcp_logger.addHandler(mcp_file_handler)
 
 
 def get_logger(name: str) -> logging.Logger:

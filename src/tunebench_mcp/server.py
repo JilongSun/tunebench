@@ -15,6 +15,7 @@ from mcp_use.server import MCPServer
 
 from tunebench_mcp.routes import assets, execute, manage, utility
 from tunebench.util import get_logger
+from tunebench.util.logging import setup_logging
 
 
 logger = get_logger("mcp.server")
@@ -66,6 +67,7 @@ def main(debug: bool = False) -> int:
 
     :param debug: 是否开启调试模式（启用 MCP inspector 页面）。
     """
+    setup_logging()
     debug_mode = debug or _MCP_DEBUG
     logger.info(
         "启动 MCP server transport=streamable-http host=%s port=%s path=%s debug=%s",

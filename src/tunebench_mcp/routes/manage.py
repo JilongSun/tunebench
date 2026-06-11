@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from mcp_use.server import MCPRouter
@@ -16,8 +15,9 @@ from tunebench_mcp.adapters import (
     to_payload,
 )
 from tunebench_mcp.routes.shared import get_workflow_service
+from tunebench.util import get_logger
 
-logger = logging.getLogger("mcp.manage")
+logger = get_logger("mcp.manage")
 
 router = MCPRouter(
     prefix="manage",

@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 RUNTIME_DIR="${PROJECT_ROOT}/runtime/mcp"
 PID_FILE="${RUNTIME_DIR}/tunebench_mcp.pid"
-LOG_FILE="${RUNTIME_DIR}/tunebench_mcp.log"
+APP_LOG="${PROJECT_ROOT}/runtime/logs/tunebench_mcp.log"
 ENV_PATH="${PROJECT_ROOT}/.tb311"
 
 mkdir -p "${RUNTIME_DIR}"
@@ -40,11 +40,14 @@ export TUNEBENCH_MCP_HOST="${TUNEBENCH_MCP_HOST:-127.0.0.1}"
 export TUNEBENCH_MCP_PORT="${TUNEBENCH_MCP_PORT:-8888}"
 export TUNEBENCH_MCP_PATH="${TUNEBENCH_MCP_PATH:-/mcp}"
 
-nohup "${PYTHON_BIN}" -m tunebench_mcp >"${LOG_FILE}" 2>&1 < /dev/null &
+# 应用日志由 tunebench.util.logging.setup_logging() 统一写入 runtime/logs/
+# MCP 日志: runtime/logs/tunebench_mcp.log
+# nohup 的 stderr 重定向仅用于捕获启动早期的致命错误
+nohup "${PYTHON_BIN}" -m tunebench_mcp >/dev/null 2>"${RUNTIME_DIR}/startup_errors.log" < /dev/null &
 server_pid="$!"
 echo "${server_pid}" > "${PID_FILE}"
 
 echo "MCP server 已启动"
 echo "PID: ${server_pid}"
-echo "LOG: ${LOG_FILE}"
+echo "APP 日志: ${APP_LOG}"
 echo "URL: http://${TUNEBENCH_MCP_HOST}:${TUNEBENCH_MCP_PORT}${TUNEBENCH_MCP_PATH}"
